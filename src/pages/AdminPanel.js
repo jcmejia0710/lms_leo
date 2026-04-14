@@ -144,6 +144,11 @@ const AdminPanel = () => {
       {/* Cursos */}
       {tab === 'cursos' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+            <button className="btn btn-primary" onClick={() => navigate('/courses')}>
+              <BookOpen size={16} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} /> Administrar en Catálogo
+            </button>
+          </div>
           {cursos.map(c => (
             <div key={c.id_curso} className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1.5rem' }}>
               <div style={{ flex: 1 }}>

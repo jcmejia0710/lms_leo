@@ -67,7 +67,7 @@ const Dashboard = () => {
           const now = new Date().toISOString();
           const { data: tData } = await supabase
             .from('tareas')
-            .select('*, cursos(nombre)')
+            .select('*, curso:id_curso(nombre)')
             .in('id_curso', courseIds)
             .gte('fecha_entrega', now)
             .order('fecha_entrega', { ascending: true })
@@ -179,7 +179,7 @@ const Dashboard = () => {
             ) : upcomingTasks.map(t => {
               const days = daysUntil(t.fecha_entrega);
               return (
-                <div key={t.id_tarea} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: '1px solid var(--border-color)' }}>
+                <Link key={t.id_tarea} to={`/task/${t.id_tarea}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: '1px solid var(--border-color)', textDecoration: 'none', color: 'inherit' }}>
                   <div>
                     <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{t.titulo}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.cursos?.nombre}</div>
@@ -187,7 +187,7 @@ const Dashboard = () => {
                   <span style={{ padding: '0.2rem 0.5rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', background: days <= 2 ? 'rgba(239,68,68,0.15)' : 'rgba(251,191,36,0.15)', color: days <= 2 ? '#ef4444' : '#f59e0b', whiteSpace: 'nowrap' }}>
                     {days === 0 ? '¡Hoy!' : `${days}d`}
                   </span>
-                </div>
+                </Link>
               );
             })
           ) : (

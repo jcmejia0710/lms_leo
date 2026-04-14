@@ -10,29 +10,59 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        await fetchPerfil(session.user.id);
-      }
-      setLoading(false);
-    };
-    checkSession();
+    let mounted = true;
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // Safety timeout to prevent infinite loading (increased to 8s)
+    const safetyTimeout = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn('AuthContext: Safety timeout reached. Forcing loading to false.');
+        setLoading(false);
+      }
+    }, 8000);
+
+    // Get initial session explicitly to bypass potential lag in onAuthStateChange
+    const initSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (mounted) {
+          if (session?.user) {
+            setUser(session.user);
+            fetchPerfil(session.user.id);
+          }
+          // We don't set loading false here because onAuthStateChange will also fire
+        }
+      } catch (err) {
+        console.error('AuthContext: Error getting initial session:', err);
+      }
+    };
+
+    initSession();
+
+    // Get initial session and subscribe to changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
       if (session?.user) {
         setUser(session.user);
-        if (event === 'SIGNED_IN') await fetchPerfil(session.user.id);
+        // Only fetch profile if it's a new session or sign-in event
+        if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+          fetchPerfil(session.user.id);
+        }
       } else {
         setUser(null);
         setPerfil(null);
         setRolNombre('');
       }
+      
       setLoading(false);
+      clearTimeout(safetyTimeout);
     });
 
-    return () => { authListener.subscription.unsubscribe(); };
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+      clearTimeout(safetyTimeout);
+    };
   }, []);
 
   const fetchPerfil = async (userId) => {

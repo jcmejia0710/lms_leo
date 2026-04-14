@@ -39,6 +39,20 @@ const TaskDetail = () => {
       setSubmission(subData);
       if (subData.calificaciones_tareas?.length > 0) setCalificacion(subData.calificaciones_tareas[0]);
     }
+
+    // Registrar vista si es alumno
+    if (perfil && perfil.id_rol !== 'id_del_docente') { // Simplificamos o usamos rolNombre
+      try {
+        await supabase.from('vistas_tareas').upsert({ 
+          id_tarea: taskId, 
+          id_estudiante: perfil.id_usuario,
+          fecha_vista: new Date().toISOString()
+        }, { onConflict: 'id_tarea,id_estudiante' });
+      } catch (e) {
+        console.error("Error al registrar vista:", e);
+      }
+    }
+
     setLoading(false);
   };
 
@@ -191,15 +205,57 @@ const TaskDetail = () => {
             </div>
 
             <div className="form-group">
-              <label><UploadCloud size={14} style={{ verticalAlign: 'middle', marginRight: '0.4rem' }} />Archivo adjunto (PDF, DOCX, ZIP)</label>
-              <div style={{ border: '2px dashed var(--border-color)', padding: '2rem', textAlign: 'center', borderRadius: 'var(--radius)', background: 'rgba(0,0,0,0.1)', cursor: 'pointer' }}
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); }}>
-                <UploadCloud size={32} color="var(--text-muted)" style={{ marginBottom: '0.75rem' }} />
-                <p style={{ color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>Arrastra un archivo aquí o haz clic para seleccionar</p>
-                <input type="file" accept=".pdf,.doc,.docx,.zip,.jpg,.png" onChange={e => e.target.files[0] && setFile(e.target.files[0])} style={{ display: 'none' }} id="fileInput" />
-                <label htmlFor="fileInput" className="btn btn-secondary" style={{ cursor: 'pointer' }}>Seleccionar archivo</label>
-                {file && <p style={{ color: 'var(--secondary-color)', marginTop: '0.75rem', fontWeight: 'bold' }}>✅ {file.name}</p>}
+              <label><UploadCloud size={16} style={{ verticalAlign: 'middle', marginRight: '0.4rem', color: 'var(--secondary-color)' }} />Archivo adjunto (PDF, DOCX, ZIP, JPG)</label>
+              <div 
+                style={{ 
+                  border: '2px dashed var(--secondary-color)', 
+                  padding: '3rem 2rem', 
+                  textAlign: 'center', 
+                  borderRadius: 'var(--radius)', 
+                  background: 'rgba(16, 185, 129, 0.05)', 
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  marginTop: '0.5rem'
+                }}
+                onDragOver={e => {
+                  e.preventDefault();
+                  e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)';
+                  e.currentTarget.style.borderColor = 'var(--primary-color)';
+                }}
+                onDragLeave={e => {
+                  e.currentTarget.style.background = 'rgba(16, 185, 129, 0.05)';
+                  e.currentTarget.style.borderColor = 'var(--secondary-color)';
+                }}
+                onDrop={e => { 
+                  e.preventDefault(); 
+                  e.currentTarget.style.background = 'rgba(16, 185, 129, 0.05)';
+                  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); 
+                }}
+                onClick={() => document.getElementById('fileInput').click()}
+              >
+                <UploadCloud size={48} color="var(--secondary-color)" style={{ marginBottom: '1rem', opacity: 0.8 }} />
+                <h4 style={{ margin: '0 0 0.5rem', color: 'var(--text-color)' }}>
+                  {file ? '¡Archivo listo!' : 'Selecciona o arrastra tu archivo'}
+                </h4>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+                  Sube documentos, imágenes o archivos comprimidos (máx 50MB)
+                </p>
+                <input 
+                  type="file" 
+                  accept=".pdf,.doc,.docx,.zip,.jpg,.png" 
+                  onChange={e => e.target.files[0] && setFile(e.target.files[0])} 
+                  style={{ display: 'none' }} 
+                  id="fileInput" 
+                />
+                <div className="btn btn-secondary" style={{ pointerEvents: 'none' }}>
+                  {file ? 'Cambiar archivo' : 'Buscar en mi equipo'}
+                </div>
+                {file && (
+                  <div style={{ marginTop: '1.5rem', padding: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <CheckCircle size={16} color="#10b981" />
+                    <span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '0.9rem' }}>{file.name}</span>
+                  </div>
+                )}
               </div>
             </div>
 

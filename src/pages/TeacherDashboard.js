@@ -9,35 +9,66 @@ const TeacherDashboard = () => {
   const navigate = useNavigate();
   const [myCourses, setMyCourses] = useState([]);
   const [pendingEntregas, setPendingEntregas] = useState([]);
+  const [myTasks, setMyTasks] = useState([]);
+  const [enrolledStudents, setEnrolledStudents] = useState([]);
+  const [taskViews, setTaskViews] = useState([]);
+  const [allDeliveriesCount, setAllDeliveriesCount] = useState([]);
   const [tab, setTab] = useState('cursos');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ nombre: '', codigo: '', descripcion: '' });
   const [saving, setSaving] = useState(false);
+  const [newlyCreatedIds, setNewlyCreatedIds] = useState(new Set());
 
   useEffect(() => {
     if (rolNombre && rolNombre === 'estudiante') navigate('/dashboard');
     else if (perfil) fetchAll();
   }, [perfil, rolNombre]);
 
-  const fetchAll = async () => {
-    setLoading(true);
-    const { data: c } = await supabase
-      .from('cursos')
-      .select('*, categorias_curso(nombre), inscripciones(count)')
-      .eq('id_creador', perfil.id_usuario);
-    if (c) setMyCourses(c);
+  const fetchData = async () => {
+    // Cursos
+    const { data: c } = await supabase.from('cursos').select('*, categorias_curso(nombre), inscripciones(count)').eq('id_creador', perfil.id_usuario);
+    if (c) {
+      setMyCourses(c.map(course => ({
+        ...course,
+        is_new: newlyCreatedIds.has(course.id_curso)
+      })));
+    }
 
-    // Entregas pendientes
     const courseIds = (c || []).map(x => x.id_curso);
     if (courseIds.length > 0) {
-      const { data: ent } = await supabase
-        .from('entregas')
-        .select('*, tareas(titulo, id_curso, cursos(nombre)), perfiles!entregas_id_estudiante_fkey(nombres, apellidos)')
-        .in('tareas.id_curso', courseIds)
-        .eq('estado_revision', 'pendiente');
-      if (ent) setPendingEntregas(ent.filter(e => e.tareas !== null));
+      // Tareas
+      const { data: t } = await supabase.from('tareas').select('*, curso:id_curso(nombre)').in('id_curso', courseIds);
+      if (t) {
+        setMyTasks(t.map(task => ({
+          ...task,
+          is_new: newlyCreatedIds.has(task.id_tarea)
+        })));
+
+        // Inscripciones para tracking
+        const { data: ins } = await supabase.from('inscripciones').select('id_curso, id_estudiante').in('id_curso', courseIds);
+        if (ins) setEnrolledStudents(ins);
+
+        // Vistas
+        const taskIds = t.map(x => x.id_tarea);
+        if (taskIds.length > 0) {
+          const { data: v } = await supabase.from('vistas_tareas').select('*').in('id_tarea', taskIds);
+          if (v) setTaskViews(v);
+
+          const { data: dAll } = await supabase.from('entregas').select('id_tarea, id_estudiante').in('id_tarea', taskIds);
+          if (dAll) setAllDeliveriesCount(dAll);
+        }
+
+        // Entregas Pendientes
+        const { data: ent } = await supabase.from('entregas').select('*, tareas(titulo, id_curso, curso:id_curso(nombre)), perfiles!entregas_id_estudiante_fkey(nombres, apellidos)').in('tareas.id_curso', courseIds).eq('estado_revision', 'pendiente');
+        if (ent) setPendingEntregas(ent.filter(e => e.tareas !== null));
+      }
     }
+  };
+
+  const fetchAll = async () => {
+    setLoading(true);
+    await fetchData();
     setLoading(false);
   };
 
@@ -56,7 +87,12 @@ const TeacherDashboard = () => {
       fecha_inicio: new Date().toISOString().split('T')[0],
     });
     if (error) alert('Error: ' + (error.message || 'Código duplicado'));
-    else { setShowModal(false); setForm({ nombre: '', codigo: '', descripcion: '' }); fetchAll(); }
+    else { 
+      setShowModal(false); 
+      setForm({ nombre: '', codigo: '', descripcion: '' }); 
+      await fetchAll();
+      alert(`¡Curso "${form.nombre}" creado con éxito!`);
+    }
     setSaving(false);
   };
 
@@ -99,6 +135,9 @@ const TeacherDashboard = () => {
             </span>
           )}
         </button>
+        <button onClick={() => setTab('tareas')} className={`btn ${tab === 'tareas' ? 'btn-primary' : 'btn-secondary'}`} style={{ border: 'none' }}>
+          <Edit size={16} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />Mis Tareas ({myTasks.length})
+        </button>
       </div>
 
       {/* Cursos */}
@@ -126,12 +165,54 @@ const TeacherDashboard = () => {
                 <span style={{ padding: '0.2rem 0.75rem', borderRadius: '20px', background: c.estado === 'activo' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: c.estado === 'activo' ? '#10b981' : '#ef4444', fontSize: '0.8rem', fontWeight: 'bold' }}>
                   {c.estado}
                 </span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>👥 {enrolledStudents.filter(s => s.id_curso === c.id_curso).length} alumnos</span>
+                {c.is_new && <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>NUEVO</span>}
               </div>
               <Link to={`/courses/${c.id_curso}`} className="btn btn-primary" style={{ textAlign: 'center' }}>
                 <Edit size={14} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />Editar Contenido
               </Link>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Mis Tareas */}
+      {tab === 'tareas' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {myTasks.length === 0 ? (
+            <div className="glass-card" style={{ textAlign: 'center', padding: '3rem' }}>
+              <h3>No has creado tareas</h3>
+            </div>
+          ) : myTasks.map(task => {
+            const vCount = taskViews.filter(v => v.id_tarea === task.id_tarea).length;
+            const sCount = allDeliveriesCount.filter(d => d.id_tarea === task.id_tarea).length;
+            const totalStudents = enrolledStudents.filter(s => s.id_curso === task.id_curso).length;
+            
+            return (
+              <div key={task.id_tarea} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h4 style={{ margin: 0 }}>{task.titulo}</h4>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Curso: {task.curso?.nombre}
+                    {task.is_new && <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.1rem 0.4rem' }}>NUEVO</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--secondary-color)' }}>{vCount}/{totalStudents}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Visto</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#10b981' }}>{sCount}/{totalStudents}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Enviado</div>
+                  </div>
+                  <Link to={`/courses/${task.id_curso}`} className="btn btn-secondary" style={{ padding: '0.5rem' }}>
+                    Ver en Curso
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

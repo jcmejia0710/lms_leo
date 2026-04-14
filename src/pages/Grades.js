@@ -21,25 +21,30 @@ const Grades = () => {
     // Entregas (tareas)
     const { data: entregasData } = await supabase
       .from('entregas')
-      .select('*, tareas(titulo, puntaje_maximo, cursos(nombre)), calificaciones_tareas(puntaje_obtenido, retroalimentacion)')
+      .select('*, tarea:id_tarea(titulo, puntaje_maximo, curso:id_curso(nombre)), calificaciones_tareas(puntaje_obtenido, retroalimentacion)')
       .eq('id_estudiante', perfil.id_usuario)
       .order('fecha_envio', { ascending: false });
 
-    if (entregasData) setEntregas(entregasData);
+    if (entregasData) {
+      // Normalizar nombres si se usó alias
+      setEntregas(entregasData.map(e => ({ ...e, tareas: e.tarea })));
+    }
 
     // Intentos de cuestionarios
     const { data: intentosData } = await supabase
       .from('intentos_cuestionario')
-      .select('*, cuestionarios(titulo, cursos(nombre))')
+      .select('*, cuestionario:id_cuestionario(titulo, curso:id_curso(nombre))')
       .eq('id_estudiante', perfil.id_usuario)
       .order('fecha_inicio', { ascending: false });
 
-    if (intentosData) setIntentos(intentosData);
+    if (intentosData) {
+      setIntentos(intentosData.map(i => ({ ...i, cuestionarios: i.cuestionario })));
+    }
 
     // Inscripciones
     const { data: inscrData } = await supabase
       .from('inscripciones')
-      .select('*, cursos(nombre, codigo, tareas(id_tarea), cuestionarios(id_cuestionario))')
+      .select('*, cursos:id_curso(nombre, codigo, tareas(id_tarea), cuestionarios(id_cuestionario))')
       .eq('id_estudiante', perfil.id_usuario);
 
     if (inscrData) setInscripciones(inscrData);

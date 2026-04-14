@@ -12,60 +12,127 @@ const CourseDetail = () => {
   const [tasks, setTasks] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [forums, setForums] = useState([]);
-  const [entregas, setEntregas] = useState([]);
+  const [entregas, setEntregas] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('modules');
   const [showAddModule, setShowAddModule] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [newlyCreatedIds, setNewlyCreatedIds] = useState(new Set());
   const [newModule, setNewModule] = useState({ titulo: '', descripcion: '' });
   const [newTask, setNewTask] = useState({ titulo: '', instrucciones: '', puntaje_maximo: 100, fecha_entrega: '' });
+  
+  const [enrolledStudents, setEnrolledStudents] = useState([]);
+  const [taskViews, setTaskViews] = useState([]);
+  const [allDeliveries, setAllDeliveries] = useState([]);
+  const [showTracking, setShowTracking] = useState(null); // id_tarea para mostrar seguimiento
 
   const isTeacher = rolNombre === 'docente' || rolNombre === 'administrador';
 
-  useEffect(() => { fetchAll(); }, [id]);
-
   const fetchAll = async () => {
-    setLoading(true);
-    const { data: c } = await supabase.from('cursos').select('*, perfiles!cursos_id_creador_fkey(nombres, apellidos), categorias_curso(nombre)').eq('id_curso', id).single();
-    if (c) setCourse(c);
+    try {
+      setLoading(true);
+      
+      // Ejecutar consultas independientes en paralelo con manejo de errores individual
+      const [cRes, mRes, tRes, qRes, fRes] = await Promise.all([
+        supabase.from('cursos').select('*, perfiles!cursos_id_creador_fkey(nombres, apellidos), categorias_curso(nombre)').eq('id_curso', id).single(),
+        supabase.from('modulos').select('*, materiales(*)').eq('id_curso', id).order('orden'),
+        supabase.from('tareas').select('*').eq('id_curso', id),
+        supabase.from('cuestionarios').select('*').eq('id_curso', id),
+        supabase.from('foros').select('*, perfiles!foros_id_creador_fkey(nombres, apellidos)').eq('id_curso', id)
+      ]);
 
-    const { data: m } = await supabase.from('modulos').select('*, materiales(*)').eq('id_curso', id).order('orden');
-    if (m) setModules(m);
+      if (cRes.error) console.error('Error fetching course:', cRes.error);
+      if (cRes.data) setCourse(cRes.data);
+      if (mRes.data) setModules(mRes.data);
+      
+      const t = tRes.data || [];
+      setTasks(t);
+      if (qRes.data) setQuizzes(qRes.data);
+      if (fRes.data) setForums(fRes.data);
 
-    const { data: t } = await supabase.from('tareas').select('*').eq('id_curso', id).order('created_at', { ascending: false });
-    if (t) setTasks(t);
+      if (perfil) {
+        if (rolNombre === 'estudiante') {
+          const { data: e } = await supabase.from('entregas').select('id_tarea').eq('id_estudiante', perfil.id_usuario);
+          if (e) setEntregas(new Set(e.map(x => x.id_tarea)));
+        } else if (isTeacher) {
+          // Consultas secundarias del docente en paralelo
+          const teacherQueries = [
+            supabase.from('inscripciones').select('*, perfiles(nombres, apellidos, id_usuario)').eq('id_curso', id)
+          ];
+          
+          if (t.length > 0) {
+            const taskIds = t.map(x => x.id_tarea);
+            teacherQueries.push(supabase.from('vistas_tareas').select('*').in('id_tarea', taskIds));
+            teacherQueries.push(supabase.from('entregas').select('*').in('id_tarea', taskIds));
+          }
 
-    const { data: q } = await supabase.from('cuestionarios').select('*').eq('id_curso', id);
-    if (q) setQuizzes(q);
-
-    const { data: f } = await supabase.from('foros').select('*, perfiles!foros_id_creador_fkey(nombres, apellidos)').eq('id_curso', id);
-    if (f) setForums(f);
-
-    // Mis entregas (para estudiante)
-    if (perfil && rolNombre === 'estudiante') {
-      const { data: e } = await supabase.from('entregas').select('id_tarea').eq('id_estudiante', perfil.id_usuario);
-      if (e) setEntregas(new Set(e.map(x => x.id_tarea)));
+          const teacherRes = await Promise.all(teacherQueries.map(q => q.catch(e => ({ error: e, data: null }))));
+          
+          if (teacherRes[0]?.data) setEnrolledStudents(teacherRes[0].data.map(x => x.perfiles).filter(Boolean));
+          
+          if (t.length > 0) {
+            if (teacherRes[1]?.data) setTaskViews(teacherRes[1].data);
+            if (teacherRes[2]?.data) setAllDeliveries(teacherRes[2].data);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('CRITICAL ERROR in fetchAll:', err);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
+
+  useEffect(() => {
+    if (id) {
+      fetchAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, perfil?.id_usuario, rolNombre]);
 
   const handleAddModule = async (e) => {
     e.preventDefault();
     const nextOrder = modules.length + 1;
-    const { error } = await supabase.from('modulos').insert({ id_curso: id, titulo: newModule.titulo, descripcion: newModule.descripcion, orden: nextOrder });
-    if (!error) { setShowAddModule(false); setNewModule({ titulo: '', descripcion: '' }); fetchAll(); }
-    else alert('Error al crear módulo: ' + error.message);
+    const { data: m, error } = await supabase.from('modulos').insert({ 
+      id_curso: id, 
+      titulo: newModule.titulo, 
+      descripcion: newModule.descripcion, 
+      orden: nextOrder 
+    }).select();
+    if (!error) { 
+      setShowAddModule(false); 
+      setNewModule({ titulo: '', descripcion: '' }); 
+      if (m?.[0]) setNewlyCreatedIds(prev => new Set([...prev, m[0].id_modulo]));
+      fetchAll(); 
+      alert(`✅ ¡Módulo "${newModule.titulo}" creado con éxito!`);
+    } else {
+      alert('Error al crear módulo: ' + error.message);
+    }
   };
 
   const handleAddTask = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('tareas').insert({
+    const { data: t, error } = await supabase.from('tareas').insert({
       id_curso: id, id_creador: perfil.id_usuario, titulo: newTask.titulo,
       instrucciones: newTask.instrucciones, puntaje_maximo: newTask.puntaje_maximo,
       fecha_entrega: newTask.fecha_entrega || null, estado: 'activo'
-    });
-    if (!error) { setShowAddTask(false); setNewTask({ titulo: '', instrucciones: '', puntaje_maximo: 100, fecha_entrega: '' }); fetchAll(); }
+    }).select();
+    if (!error) { 
+      setShowAddTask(false); 
+      setNewTask({ titulo: '', instrucciones: '', puntaje_maximo: 100, fecha_entrega: '' }); 
+      if (t?.[0]) {
+        setNewlyCreatedIds(prev => new Set([...prev, t[0].id_tarea]));
+        setTimeout(() => {
+          setNewlyCreatedIds(prev => {
+            const n = new Set(prev);
+            n.delete(t[0].id_tarea);
+            return n;
+          });
+        }, 10000);
+      }
+      fetchAll(); 
+      alert(`✅ ¡Tarea "${newTask.titulo}" creada con éxito!`);
+    }
     else alert('Error al crear tarea: ' + error.message);
   };
 
@@ -151,7 +218,10 @@ const CourseDetail = () => {
                     {i + 1}
                   </div>
                   <div>
-                    <h3 style={{ margin: 0 }}>{mod.titulo}</h3>
+                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {mod.titulo}
+                      {newlyCreatedIds.has(mod.id_modulo) && <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.1rem 0.4rem' }}>NUEVO</span>}
+                    </h3>
                     {mod.descripcion && <p style={{ color: 'var(--text-muted)', margin: '0.2rem 0 0', fontSize: '0.9rem' }}>{mod.descripcion}</p>}
                   </div>
                 </div>
@@ -204,26 +274,80 @@ const CourseDetail = () => {
                 <h3>Sin tareas publicadas</h3>
               </div>
             ) : tasks.map(task => {
-              const entregada = entregas instanceof Set && entregas.has(task.id_tarea);
+              const entregada = (rolNombre === 'estudiante' && entregas instanceof Set) ? entregas.has(task.id_tarea) : false;
+              const viewsCount = taskViews.filter(v => v.id_tarea === task.id_tarea).length;
+              const subCount = allDeliveries.filter(d => d.id_tarea === task.id_tarea).length;
               const daysLeft = task.fecha_entrega ? Math.ceil((new Date(task.fecha_entrega) - new Date()) / 86400000) : null;
+              
               return (
-                <div key={task.id_tarea} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1 }}>
-                    <h4 style={{ marginBottom: '0.4rem' }}>{task.titulo}</h4>
-                    <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                      <span>🏆 {task.puntaje_maximo} pts</span>
-                      {task.fecha_entrega && (
-                        <span style={{ color: daysLeft !== null && daysLeft < 2 ? '#ef4444' : 'inherit' }}>
-                          📅 {new Date(task.fecha_entrega).toLocaleDateString()}
-                          {daysLeft !== null && ` (${daysLeft < 0 ? 'Vencida' : daysLeft === 0 ? '¡Hoy!' : `${daysLeft}d`})`}
+                <div key={task.id_tarea} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1 }}>
+                      <h4 style={{ marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {task.titulo}
+                        {newlyCreatedIds.has(task.id_tarea) && <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.1rem 0.4rem' }}>NUEVO</span>}
+                      </h4>
+                      <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                        <span>🏆 {task.puntaje_maximo} pts</span>
+                        {task.fecha_entrega && (
+                          <span style={{ color: daysLeft !== null && daysLeft < 2 ? '#ef4444' : 'inherit' }}>
+                            📅 {new Date(task.fecha_entrega).toLocaleDateString()}
+                          </span>
+                        )}
+                        {isTeacher && (
+                          <>
+                            <span style={{ color: 'var(--secondary-color)' }}>👀 {viewsCount} vistos</span>
+                            <span style={{ color: '#10b981' }}>📤 {subCount} entregados</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      {rolNombre === 'estudiante' && entregada && (
+                        <span style={{ color: '#10b981', fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <CheckSquare size={14} /> Entregada
                         </span>
+                      )}
+                      
+                      {isTeacher ? (
+                        <button className="btn btn-secondary" onClick={() => setShowTracking(showTracking === task.id_tarea ? null : task.id_tarea)}>
+                          {showTracking === task.id_tarea ? 'Ocultar Seguimiento' : 'Ver Seguimiento'}
+                        </button>
+                      ) : (
+                        <Link to={`/task/${task.id_tarea}`} className="btn btn-secondary">Ver Tarea</Link>
                       )}
                     </div>
                   </div>
-                  {entregada ? (
-                    <span style={{ color: '#10b981', fontWeight: '600', fontSize: '0.85rem' }}>✅ Entregada</span>
-                  ) : (
-                    <Link to={`/task/${task.id_tarea}`} className="btn btn-secondary">Ver Tarea</Link>
+
+                  {/* Detalle de Seguimiento para Docente */}
+                  {isTeacher && showTracking === task.id_tarea && (
+                    <div className="glass-card" style={{ marginTop: '-0.5rem', background: 'rgba(0,0,0,0.1)', padding: '1.25rem' }}>
+                      <h5 style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>Estado de Alumnos Inscritos ({enrolledStudents.length})</h5>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+                        {enrolledStudents.map(student => {
+                          const hasViewed = taskViews.find(v => v.id_tarea === task.id_tarea && v.id_estudiante === student.id_usuario);
+                          const submission = allDeliveries.find(d => d.id_tarea === task.id_tarea && d.id_estudiante === student.id_usuario);
+                          
+                          return (
+                            <div key={student.id_usuario} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem', background: 'var(--bg-color)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                              <div className="avatar" style={{ width: '32px', height: '32px', fontSize: '0.75rem' }}>
+                                {student.nombres?.charAt(0)}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {student.nombres} {student.apellidos}
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.75rem' }}>
+                                  <span style={{ color: hasViewed ? 'var(--secondary-color)' : '#9ca3af' }}>{hasViewed ? '👀 Visto' : '⭕ No visto'}</span>
+                                  <span style={{ color: submission ? '#10b981' : '#9ca3af' }}>{submission ? '✅ Entregado' : '❌ Pendiente'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
                 </div>
               );

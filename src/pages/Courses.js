@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useAuth } from '../context/AuthContext';
-import { BookOpen, Search, Filter, Star, Clock, Users } from 'lucide-react';
+import { BookOpen, Search, Filter, Star, Clock, Users, PlusCircle } from 'lucide-react';
 
 const COLORS = [
   'linear-gradient(135deg, #4f46e5, #7c3aed)',
@@ -22,6 +22,17 @@ const Courses = () => {
   const [selectedCat, setSelectedCat] = useState('');
   const [myOnly, setMyOnly] = useState(false);
   const [inscritosIds, setInscritosIds] = useState(new Set());
+  const [showAddCourse, setShowAddCourse] = useState(false);
+  const [newCourse, setNewCourse] = useState({ 
+    nombre: '', 
+    codigo: '', 
+    descripcion: '', 
+    id_categoria: '',
+    fecha_inicio: '',
+    fecha_fin: ''
+  });
+
+  const isTeacher = rolNombre === 'docente' || rolNombre === 'administrador';
 
   useEffect(() => {
     fetchData();
@@ -62,6 +73,25 @@ const Courses = () => {
     else alert('Ya estás inscrito en este curso.');
   };
 
+  const handleCreateCourse = async (e) => {
+    e.preventDefault();
+    if (!perfil) return;
+    
+    const { error } = await supabase.from('cursos').insert({
+      ...newCourse,
+      id_creador: perfil.id_usuario,
+      estado: 'activo'
+    });
+
+    if (!error) {
+      setShowAddCourse(false);
+      setNewCourse({ nombre: '', codigo: '', descripcion: '', id_categoria: '', fecha_inicio: '', fecha_fin: '' });
+      fetchData();
+    } else {
+      alert('Error al crear curso: ' + error.message);
+    }
+  };
+
   const filtered = courses.filter(c => {
     const matchSearch = c.nombre.toLowerCase().includes(search.toLowerCase()) ||
                         c.descripcion?.toLowerCase().includes(search.toLowerCase()) ||
@@ -92,6 +122,12 @@ const Courses = () => {
           <Filter size={15} />
           {rolNombre === 'estudiante' ? 'Mis cursos' : 'Mis creaciones'}
         </button>
+
+        {isTeacher && (
+          <button onClick={() => setShowAddCourse(true)} className="btn btn-primary" style={{ background: 'linear-gradient(90deg, var(--secondary-color), #059668)' }}>
+            <PlusCircle size={16} /> Nuevo Curso
+          </button>
+        )}
       </div>
 
       {/* Resultados */}
@@ -151,6 +187,54 @@ const Courses = () => {
               </Link>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal Agregar Curso */}
+      {showAddCourse && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <PlusCircle size={20} color="var(--primary-color)" /> Nuevo Curso
+            </h3>
+            <form onSubmit={handleCreateCourse}>
+              <div className="form-group">
+                <label>Nombre del Curso *</label>
+                <input className="form-control" required value={newCourse.nombre} onChange={e => setNewCourse(p => ({ ...p, nombre: e.target.value }))} placeholder="Ej: Matemáticas Avanzadas" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label>Código *</label>
+                  <input className="form-control" required value={newCourse.codigo} onChange={e => setNewCourse(p => ({ ...p, codigo: e.target.value }))} placeholder="MAT-101" />
+                </div>
+                <div className="form-group">
+                  <label>Categoría *</label>
+                  <select className="form-control" required value={newCourse.id_categoria} onChange={e => setNewCourse(p => ({ ...p, id_categoria: e.target.value }))}>
+                    <option value="">Seleccionar...</option>
+                    {categories.map(c => <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Descripción</label>
+                <textarea className="form-control" rows={3} value={newCourse.descripcion} onChange={e => setNewCourse(p => ({ ...p, descripcion: e.target.value }))} placeholder="Breve descripción del curso..." />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label>Fecha Inicio</label>
+                  <input className="form-control" type="date" value={newCourse.fecha_inicio} onChange={e => setNewCourse(p => ({ ...p, fecha_inicio: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label>Fecha Fin</label>
+                  <input className="form-control" type="date" value={newCourse.fecha_fin} onChange={e => setNewCourse(p => ({ ...p, fecha_fin: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Crear Curso</button>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddCourse(false)}>Cancelar</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
