@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/lms_leo/static/css/main.9aca686c.css",
-    "main.js": "/lms_leo/static/js/main.14765fd2.js",
+    "main.js": "/lms_leo/static/js/main.da69fdba.js",
     "index.html": "/lms_leo/index.html",
     "main.9aca686c.css.map": "/lms_leo/static/css/main.9aca686c.css.map",
-    "main.14765fd2.js.map": "/lms_leo/static/js/main.14765fd2.js.map"
+    "main.da69fdba.js.map": "/lms_leo/static/js/main.da69fdba.js.map"
   },
   "entrypoints": [
     "static/css/main.9aca686c.css",
-    "static/js/main.14765fd2.js"
+    "static/js/main.da69fdba.js"
   ]
 }
